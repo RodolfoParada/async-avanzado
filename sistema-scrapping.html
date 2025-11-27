@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema Básico de Web Scraping</title>
+    <!-- Se eliminó Tailwind. Usamos solo CSS básico. -->
+    
+    <style>
+        /* Estilos Fundamentales */
+        body { 
+            font-family: Arial, sans-serif; 
+            background-color: #f4f4f4; /* Fondo gris claro */
+            padding: 20px; 
+            margin: 0;
+            color: #333;
+        }
+        .contenedor { /* Clase 'container' traducida */
+            max-width: 800px;
+            margin: 20px auto;
+            background-color: white;
+            padding: 20px;
+            border: 1px solid #aaa;
+            box-shadow: 2px 2px 5px rgba(0,0,0,0.2);
+        }
+        h1 {
+            color: #1a73e8; /* Un azul simple */
+            font-size: 24px;
+            margin-bottom: 15px;
+        }
+        h2 {
+            color: #333;
+            border-bottom: 1px dashed #ccc;
+            padding-bottom: 5px;
+            margin-top: 20px;
+        }
+
+        /* Estilos de Sección y Botones */
+        .seccion { /* Clase 'section' traducida */
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            background-color: #f9f9f9;
+        }
+        .grupo-botones { /* Clase 'button-group' traducida */
+            display: flex;
+            margin-bottom: 20px;
+        }
+        .grupo-botones button {
+            padding: 10px 20px;
+            margin-right: 10px;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+            transition: opacity 0.3s;
+        }
+        #btn-iniciar { /* ID 'start-btn' traducido */
+            background-color: #4CAF50; /* Verde */
+            color: white;
+        }
+        #btn-iniciar:hover:not(:disabled) {
+            opacity: 0.9;
+        }
+        #btn-iniciar:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+            color: #666;
+        }
+        #btn-reiniciar { /* ID 'reset-btn' traducido */
+            background-color: #f44336; /* Rojo */
+            color: white;
+        }
+        #btn-reiniciar:hover {
+            opacity: 0.9;
+        }
+
+        /* Estilos del Log */
+        #salida-log { /* ID 'log-output' traducido */
+            height: 200px;
+            overflow-y: scroll;
+            border: 2px solid #333;
+            padding: 10px;
+            background-color: #eee;
+        }
+        .entrada-log { /* Clase 'log-entry' traducida */
+            font-family: 'Courier New', monospace; 
+            font-size: 0.9rem; 
+            line-height: 1.2; 
+        }
+        
+        /* Colores de Estado Simples */
+        .estado-exito { color: green; font-weight: bold; }      /* Clase 'status-success' traducida */
+        .estado-fallo { color: red; font-weight: bold; }        /* Clase 'status-failure' traducida */
+        .estado-pendiente, .texto-amarillo { color: orange; }   /* Clases 'status-pending' y 'text-yellow-400' traducidas */
+        .texto-azul { color: blue; }                             /* Clase 'text-blue-400' traducida */
+        .texto-gris { color: #555; }                             /* Clase 'text-gray-400' traducida */
+        .texto-indigo { color: #5c6bc0; }                        /* Clase 'text-indigo-400' traducida */
+    </style>
+</head>
+<body>
+
+    <div class="contenedor">
+        <h1>Sistema Scraping</h1>
+        <p class="texto-gris">
+          
+        </p>
+
+        <div class="grupo-botones">
+            <button id="btn-iniciar" disabled>
+                Iniciar Proceso de Scraping
+            </button>
+            <button id="btn-reiniciar">
+                Reiniciar
+            </button>
+        </div>
+
+        <div class="seccion seccion-estadisticas">
+            <h2>Reporte de Rendimiento</h2>
+            <div id="salida-estadisticas">
+                <p><strong>Total URLs:</strong> <span id="stat-total">0</span></p>
+                <p><strong>Completados:</strong> <span id="stat-exito">0</span> (Éxito)</p>
+                <p><strong>Fallidos:</strong> <span id="stat-fallidos">0</span> (Fallo final)</p>
+                <p><strong>Reintentos Usados:</strong> <span id="stat-reintentos">0</span></p>
+                <p><strong>Tiempo Total:</strong> <span id="stat-tiempo">0ms</span></p>
+                <p><strong>Tasa Máx. de Concurrencia:</strong> <span class="texto-amarillo">3 URLs / 1000ms</span></p>
+            </div>
+        </div>
+
+        <div class="seccion seccion-log">
+            <h2>Log de Eventos (Streaming)</h2>
+            <div id="salida-log">
+                <!-- Las entradas de Log aparecerán aquí -->
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        // --- Configuraciones del Sistema ---
+        const URLS_A_RASTREAR = [
+            'https://site.com/page-1', 'https://site.com/page-2', 'https://site.com/page-3',
+            'https://site.com/page-4', 'https://site.com/page-5', 'https://site.com/page-6',
+            'https://site.com/page-7', 'https://site.com/page-8', 'https://site.com/page-9',
+            'https://site.com/page-10'
+        ];
+        const MAX_INTENTOS = 3;             // Número máximo de reintentos
+        const LIMITE_CONCURRENCIA = 3;      // Límite de concurrencia (Rate Limiting)
+        const DEMORA_LIMITE_TASA = 1000;    // Retraso entre lotes (en ms)
+
+        // --- Elementos del DOM ---
+        const btnIniciar = document.getElementById('btn-iniciar');      // ID actualizado
+        const btnReiniciar = document.getElementById('btn-reiniciar');  // ID actualizado
+        const salidaLog = document.getElementById('salida-log');        // ID actualizado
+        const salidaEstadisticas = document.getElementById('salida-estadisticas'); // ID actualizado
+
+        // --- Estado del Reporte ---
+        let reporte = {
+            total: URLS_A_RASTREAR.length,
+            exito: 0,
+            fallidos: 0,
+            reintentosUsados: 0,
+            tiempoInicio: 0,
+            tiempoFin: 0,
+            enEjecucion: false
+        };
+
+        /**
+         * 1. Función para actualizar las estadísticas en el DOM.
+         */
+        function actualizarEstadisticas() {
+            document.getElementById('stat-total').textContent = reporte.total;
+            document.getElementById('stat-exito').textContent = reporte.exito;        // ID actualizado
+            document.getElementById('stat-fallidos').textContent = reporte.fallidos;  // ID actualizado
+            document.getElementById('stat-reintentos').textContent = reporte.reintentosUsados; // ID actualizado
+
+            if (reporte.enEjecucion) {
+                const transcurrido = Date.now() - reporte.tiempoInicio;
+                document.getElementById('stat-tiempo').textContent = `${transcurrido.toLocaleString()}ms (Corriendo...)`; // ID actualizado
+            } else if (reporte.tiempoInicio > 0 && reporte.tiempoFin > 0) {
+                const tiempoTotal = reporte.tiempoFin - reporte.tiempoInicio;
+                document.getElementById('stat-tiempo').textContent = `${tiempoTotal.toLocaleString()}ms (Finalizado)`; // ID actualizado
+            } else {
+                document.getElementById('stat-tiempo').textContent = '0ms'; // ID actualizado
+            }
+        }
+
+        /**
+         * 2. Función para registrar mensajes en el log con estilo.
+         */
+        function registrarLog(mensaje, tipo = 'default') {
+            const marcaTiempo = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+            let claseColor = 'texto-gris'; // Clase base actualizada
+
+            switch (tipo) {
+                case 'exito':       // String clave actualizado
+                    claseColor = 'estado-exito';
+                    break;
+                case 'fallo':       // String clave actualizado
+                    claseColor = 'estado-fallo';
+                    break;
+                case 'advertencia': // String clave actualizado
+                    claseColor = 'estado-pendiente';
+                    break;
+                case 'informacion': // String clave actualizado
+                    claseColor = 'texto-azul';
+                    break;
+            }
+
+            const entradaLog = document.createElement('div');
+            entradaLog.className = `entrada-log ${claseColor}`; // Clase actualizada
+            entradaLog.innerHTML = `[${marcaTiempo}] ${mensaje}`;
+
+            salidaLog.appendChild(entradaLog);
+            salidaLog.scrollTop = salidaLog.scrollHeight;
+        }
+
+        /**
+         * 3. Simula la descarga de una página web con latencia variable y probabilidad de fallo.
+         * @param {string} url - La URL a "descargar".
+         * @param {number} intento - El número de intento actual.
+         * @returns {Promise<{url: string, content: string, attempt: number}>} - Promesa que se resuelve con el contenido o se rechaza con un error.
+         */
+        function simularPeticion(url, intento) {
+            return new Promise((resolver, rechazar) => {
+                const latencia = Math.floor(Math.random() * 1000) + 500; // 500ms - 1500ms
+                // Configura page-3 y page-7 para que tengan más probabilidades de fallar (70% de fallo)
+                const tasaFallo = (url.includes('page-3') || url.includes('page-7')) ? 0.7 : 0.3; 
+
+                setTimeout(() => {
+                    if (Math.random() > tasaFallo) {
+                        // Éxito
+                        resolver({
+                            url,
+                            content: `Datos de ${url} (Tamaño: ${Math.floor(Math.random() * 50)}KB)`,
+                            attempt: intento
+                        });
+                    } else {
+                        // Fallo (simula error de red/servidor)
+                        rechazar(new Error(`Error de red simulado o timeout en el intento ${intento}.`));
+                    }
+                }, latencia);
+            });
+        }
+
+        /**
+         * 4. Lógica de reintento con retardo exponencial.
+         * @param {string} url - La URL a procesar.
+         * @param {number} intentoInicial - El intento inicial (generalmente 1).
+         * @returns {Promise<any>}
+         */
+        async function procesarConReintento(url, intentoInicial) {
+            let intento = intentoInicial;
+            while (intento <= MAX_INTENTOS) {
+                try {
+                    registrarLog(`[${url}] Intento #${intento} - Iniciando descarga...`, 'informacion'); // Tipo actualizado
+                    const resultado = await simularPeticion(url, intento);
+                    return resultado; // Éxito
+                } catch (error) {
+                    if (intento < MAX_INTENTOS) {
+                        const demoraReintento = intento * 1000; // Demora exponencial (1s, 2s)
+                        reporte.reintentosUsados++;
+                        registrarLog(`[${url}] FALLO: ${error.message} - Reintentando en ${demoraReintento}ms...`, 'advertencia'); // Tipo actualizado
+                        actualizarEstadisticas();
+                        await new Promise(resolver => setTimeout(resolver, demoraReintento));
+                    } else {
+                        throw error; // Propagar el fallo final
+                    }
+                }
+                intento++;
+            }
+        }
+
+
+        /**
+         * 5. Generador Asíncrono para procesar URLs en "streaming".
+         * Se encarga de la concurrencia, rate limiting y reintentos.
+         * @param {string[]} urls - Array de URLs a procesar.
+         * @yields {{url: string, result: 'success'|'failure', details: any}} - Un objeto con el resultado de cada URL.
+         */
+        async function* procesarUrls(urls) {
+            let urlsPendientes = urls.map(url => ({ url, attempt: 1 }));
+            
+            while (urlsPendientes.length > 0) {
+                // Seleccionar el lote de URLs para concurrencia
+                const lote = urlsPendientes.slice(0, LIMITE_CONCURRENCIA);
+                urlsPendientes = urlsPendientes.slice(LIMITE_CONCURRENCIA);
+                
+                registrarLog(`Lote Concurrente: Iniciando ${lote.length} peticiones...`, 'informacion'); // Tipo actualizado
+
+                // Mapear el lote a promesas de procesarConReintento, capturando el estado de cumplimiento
+                const promesas = lote.map(item =>
+                    procesarConReintento(item.url, item.attempt)
+                        // Si es exitoso, mapear a un objeto 'fulfilled'
+                        .then(data => ({ status: 'fulfilled', value: data }))
+                        // Si falla, mapear a un objeto 'rejected' que incluye la URL y el intento para la lógica de reintento
+                        .catch(error => ({ status: 'rejected', reason: error, url: item.url, attempt: item.attempt }))
+                );
+
+                // Esperar a que todo el lote se resuelva (Promise.allSettled)
+                const resultados = await Promise.all(promesas);
+
+                for (const resultado of resultados) {
+                    if (resultado.status === 'fulfilled') {
+                        // Caso 1: Éxito final
+                        reporte.exito++;
+                        yield { url: resultado.value.url, resultado: 'exito', detalles: resultado.value.content }; // String clave actualizado
+                    } else {
+                        const { url, attempt, reason } = resultado;
+                        
+                        // La lógica de reintento ya se manejó en procesarConReintento. 
+                        if (attempt < MAX_INTENTOS) {
+                            // Si el intento actual es menor al máximo, significa que debe reintentarse.
+                            urlsPendientes.push({ url, attempt: attempt + 1 });
+                        } else {
+                             // Caso 2: Fallo final (agotados los reintentos)
+                            reporte.fallidos++;
+                            yield { url, resultado: 'fallo', detalles: reason.message }; // String clave actualizado
+                        }
+                    }
+                    actualizarEstadisticas();
+                }
+
+                // Aplicar Rate Limiting (retraso entre lotes)
+                if (urlsPendientes.length > 0) {
+                    registrarLog(`🛑 Límite de Tasa: Esperando ${DEMORA_LIMITE_TASA}ms antes del siguiente lote (${urlsPendientes.length} restantes).`, 'advertencia'); // Tipo actualizado
+                    await new Promise(resolver => setTimeout(resolver, DEMORA_LIMITE_TASA));
+                }
+            }
+        }
+
+        /**
+         * 6. Función principal para controlar el flujo del rastreador.
+         */
+        async function ejecutarRastreador() {
+            if (reporte.enEjecucion) return;
+
+            reiniciarRastreador(); // Asegura un estado limpio
+            reporte.enEjecucion = true;
+            reporte.tiempoInicio = Date.now();
+            btnIniciar.disabled = true;
+            btnIniciar.textContent = 'Procesando...';
+            actualizarEstadisticas();
+
+            try {
+                registrarLog('--- INICIO DEL PROCESO DE RASTREO ---', 'informacion'); // Tipo actualizado
+
+                const generador = procesarUrls(URLS_A_RASTREAR);
+
+                // Iterar sobre el generador asíncrono, recibiendo resultados a medida que se completan
+                for await (const { url, resultado, detalles } of generador) {
+                    const mensajeEstado = resultado === 'exito' ? `✅ ÉXITO: Contenido extraído.` : `❌ FALLO FINAL: ${detalles}`; // String clave actualizado
+                    const tipoEstado = resultado === 'exito' ? 'exito' : 'fallo'; // Strings clave actualizados
+
+                    // Registro de resultados finales (éxito o fallo)
+                    registrarLog(`[${url}] ${mensajeEstado}`, tipoEstado);
+                }
+
+                reporte.enEjecucion = false;
+                reporte.tiempoFin = Date.now();
+                registrarLog('--- PROCESO DE RASTREO FINALIZADO ---', 'informacion'); // Tipo actualizado
+
+            } catch (error) {
+                registrarLog(`Error fatal en el rastreador: ${error.message}`, 'fallo'); // Tipo actualizado
+                reporte.enEjecucion = false;
+            } finally {
+                btnIniciar.textContent = 'Proceso Finalizado';
+                btnIniciar.disabled = true;
+                actualizarEstadisticas();
+            }
+        }
+
+        /**
+         * 7. Función para restablecer el estado del rastreador.
+         */
+        function reiniciarRastreador() {
+            reporte = {
+                total: URLS_A_RASTREAR.length,
+                exito: 0,
+                fallidos: 0,
+                reintentosUsados: 0,
+                tiempoInicio: 0,
+                tiempoFin: 0,
+                enEjecucion: false
+            };
+            salidaLog.innerHTML = '';
+            registrarLog('Sistema reiniciado. Listo para iniciar.', 'informacion'); // Tipo actualizado
+            actualizarEstadisticas();
+            btnIniciar.disabled = false;
+            btnIniciar.textContent = 'Iniciar Proceso de Scraping';
+        }
+
+        // --- Manejadores de Eventos ---
+        btnIniciar.addEventListener('click', ejecutarRastreador);
+        btnReiniciar.addEventListener('click', reiniciarRastreador);
+
+        // --- Inicialización ---
+        document.addEventListener('DOMContentLoaded', () => {
+            reiniciarRastreador();
+            document.getElementById('stat-total').textContent = URLS_A_RASTREAR.length;
+        });
+
+    </script>
+</body>
+</html>
